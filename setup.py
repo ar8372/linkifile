@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="linkifile",
-    version="0.1.3",
+    version="0.1.4",
     author="Aman Kumar Raj",
     author_email="ar837232342@gmail.com",
     description=" Empowering Effortless Data Linking.",

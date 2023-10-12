@@ -109,6 +109,7 @@ class Linker:
         fix_random(true_random())
 
         self.terminate = False
+        completed = False # if function finished normally by searching all rows: not by time limit or keyboard interrupt
         self._initialize(lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose) 
         self.query = query # Set now so that we don't set it for sanity check 
 
@@ -131,10 +132,14 @@ class Linker:
                         # Also don't return, just do break to save atleast the data we collected
                         break
                     self.data.loc[index, self.coln_pairs[1]] = res 
+                else:
+                    completed= True
+
         except KeyboardInterrupt:
             # Code to handle the KeyboardInterrupt
             print("Execution interrupted by keyboard shortcut. Saving Results!!!")
         save_data(self.data, self.destination_file, self.destination_type)
+        return completed
 
     def _initialize(self, lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose):
         self.lang = lang 
