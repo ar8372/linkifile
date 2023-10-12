@@ -3,12 +3,9 @@ from setuptools import setup, find_packages
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-with open("requirements.txt", "r", encoding='UTF-8') as fh:
-    requirements = fh.read().split("\n")
-    
 setup(
     name="linkifile",
-    version="0.1.0",
+    version="0.1.3",
     author="Aman Kumar Raj",
     author_email="ar837232342@gmail.com",
     description=" Empowering Effortless Data Linking.",
@@ -22,5 +19,9 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.6",
-    install_requires=[requirements],
+    install_requires=[
+        "beautifulsoup4>=4.9",
+        "requests>=2.20",
+        "pandas>=1.1.3",
+    ],
 )

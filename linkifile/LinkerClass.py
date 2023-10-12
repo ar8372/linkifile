@@ -2,7 +2,7 @@
 import pandas as pd
 import time 
 import concurrent.futures
-from .utils import search , load_data, save_data
+from .utils import search , load_data, save_data, true_random, fix_random
 
 class Linker:
     """  
@@ -36,11 +36,11 @@ class Linker:
     -------
     call_search(x)
         Performs a web search using the specified query (`x`) and returns the search result or an alternate text if no result is found.
-    populate(query=None, sleep_interval=0, alternate_text="Not Found", speedup=False, verbose=1)
+    populate(query=None, sleep_interval=10, alternate_text="Not Found", speedup=False, verbose=1)
         Populates the destination file with search results based on the specified query. Utilizes multithreading for faster execution if `speedup` is set to `True`.
-    query(queries, num_results=1, lang="en", proxy=None, advanced=False, sleep_interval=0, timeout=5, alternate_text="Not Found", speedup=False, verbose=1)
+    query(queries, lang="en", proxy=None, advanced=False, sleep_interval=0, timeout=5, alternate_text="Not Found", speedup=False, verbose=1)
         Executes one or more search queries and returns the search results.
-    _initialize(num_results, lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose)
+    _initialize(lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose)
         Initializes query-related parameters.
     Examples
     --------
@@ -86,36 +86,57 @@ class Linker:
             self.inplace = None
             self._load_data()
 
-    def call_search(self, x):
+    def call_search(self, x, y=""):
+        if type(y) == str and y.strip() != "":
+            return y 
         # sanity check
         if  type(x) != str or x == "" or x is None:
             return self.alternate_text
         c = next(search(x, self.query, num_results=1, sleep_interval=self.sleep_interval))
         if c == "":
-            c= self.alternate_text 
+            c = self.alternate_text
+        elif c == "STOP":
+            # error happened 
+            self.terminate = True
+            return c
         if self.verbose > 0:
             print(x,"-->", c)
         return c
     
-    def populate(self, query=None, num_results=1, lang="en", proxy=None, advanced=False, sleep_interval=0, timeout=5, alternate_text="Not Found", speedup=False, verbose=1):
+    def populate(self, query=None, replace_existing_links=False, lang="en", proxy=None, advanced=False, sleep_interval=20, timeout=5, alternate_text="Not Found", speedup=False, verbose=1):
         assert self.source_file is not None # sanity check
-        self.query = None
-        self._initialize(num_results, lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose) 
-        # request sanity_check
-        if self.call_search("apple") == self.alternate_text:
-            print("Wait for an hour!!!, or Connect to a different internet connection.")
-            return
+        # Everytime we call we don't want have same pattern of time interval, so we bring true randomness
+        fix_random(true_random())
+
+        self.terminate = False
+        self._initialize(lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose) 
         self.query = query # Set now so that we don't set it for sanity check 
 
-        if speedup:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                self.data[self.coln_pairs[1]] = list(executor.map(self.call_search, self.data[self.coln_pairs[0]]))
-        else:
-            self.data[self.coln_pairs[1]] = self.data[self.coln_pairs[0]].apply(lambda x: self.call_search(x))       
+        if replace_existing_links:
+            self.data.loc[:, self.coln_pairs[1]] = ""
+        try:
+            if speedup:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    self.data.loc[:, self.coln_pairs[1]] = list(executor.map(self.call_search, self.data.loc[:, self.coln_pairs[0]], self.data.loc[:, self.coln_pairs[1]]))
+            else:
+                # self.data[self.coln_pairs[1]] = self.data[self.coln_pairs[0]].apply(lambda x: self.call_search(x))    
+                # Iterate through the rows of the DataFrame
+                for index, value in self.data.loc[:, self.coln_pairs].iterrows():
+                    x = value[self.coln_pairs[0]]
+                    y = value[self.coln_pairs[1]]
+                    res = self.call_search(x, y)
+                    if self.terminate:
+                        # Not to keep continuing if faced any server error
+                        print("Wait for an hour!!!, or Connect to a different internet connection.")
+                        # Also don't return, just do break to save atleast the data we collected
+                        break
+                    self.data.loc[index, self.coln_pairs[1]] = res 
+        except KeyboardInterrupt:
+            # Code to handle the KeyboardInterrupt
+            print("Execution interrupted by keyboard shortcut. Saving Results!!!")
         save_data(self.data, self.destination_file, self.destination_type)
 
-    def _initialize(self, num_results, lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose):
-        self.num_results = num_results
+    def _initialize(self, lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose):
         self.lang = lang 
         self.proxy = proxy 
         self.advanced = advanced 
@@ -125,9 +146,9 @@ class Linker:
         self.speedup = speedup
         self.verbose = verbose 
 
-    def query(self, queries, num_results=1, lang="en", proxy=None, advanced=False, sleep_interval=0, timeout=5, alternate_text="Not Found", speedup=False, verbose=1):
+    def query(self, queries, lang="en", proxy=None, advanced=False, sleep_interval=2, timeout=5, alternate_text="Not Found", speedup=False, verbose=1):
         self.query = None
-        self._initialize(num_results, lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose)
+        self._initialize(lang, proxy, advanced, sleep_interval, timeout, alternate_text, speedup, verbose)
         if type(queries) is str:
             # single query 
             return self.call_search(queries)
@@ -161,8 +182,10 @@ class Linker:
         assert self.coln_pairs[0] in self.data.columns.tolist()
         if len(self.coln_pairs) == 1:
             self.coln_pairs.append(f"{self.coln_pairs[0]}_link")
-        # initialize second column 
-        self.data.loc[:, self.coln_pairs[1]] = ""
+        if self.coln_pairs[1] not in self.data.columns.tolist():
+            self.data.loc[:, self.coln_pairs[1]] = "" # initialize only if not present
+        # don't initialize it
+        #self.data.loc[:, self.coln_pairs[1]] = ""
         if self.source_file != self.destination_file:
             # we want to create new file 
             # drop rest of the columns 

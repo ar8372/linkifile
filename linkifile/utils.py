@@ -1,11 +1,26 @@
-from time import sleep
+import time
 from bs4 import BeautifulSoup
 import requests
 import urllib
 import random
 import pandas as pd
+import os
+
+def fix_random(seed):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    return seed  
+
+def true_random():
+    val = os.urandom(100)
+    val = str(val)
+    total = 0
+    for i,v in enumerate(val):
+        total += (i+1)*ord(v)
+    return int(total) # sanity check
 
 def get_useragent():
+    #return "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/W.X.Y.Z Safari/537.36"
     return random.choice(_useragent_list)
 
 _useragent_list = [
@@ -19,8 +34,15 @@ _useragent_list = [
 ]
 
 def _req(term, results, lang, start, proxies, timeout):
+    #  https://www.google.com/search
+    #  https://search.yahoo.com/ 
+    #  https://www.bing.com/
+    #  https://duckduckgo.com/ #
+    #  https://www.yandex.com/ #
     resp = None
     try:
+        session = requests.Session()
+
         resp = requests.get(
             url="https://www.google.com/search",
             headers={
@@ -36,6 +58,7 @@ def _req(term, results, lang, start, proxies, timeout):
             timeout=timeout,
         )
         resp.raise_for_status()
+        session.close()
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 429:
             print("Too Many Requests (429) Error: You've exceeded the rate limit.")
@@ -45,6 +68,7 @@ def _req(term, results, lang, start, proxies, timeout):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         resp = None
+    #print(resp)
     return resp
 
 def parse_query(term, query):
@@ -73,7 +97,7 @@ class SearchResult:
     def __repr__(self):
         return f"SearchResult(url={self.url}, title={self.title}, description={self.description})"
 
-def search(term, query=None, num_results=10, lang="en", proxy=None, advanced=False, sleep_interval=0, timeout=5):
+def search(term, query, num_results, sleep_interval, lang="en", proxy=None, advanced=False, timeout=5):
     """Search the Google search engine
     Note: this function is a modified version of googlesearch package"""
     if query is not None:
@@ -95,11 +119,14 @@ def search(term, query=None, num_results=10, lang="en", proxy=None, advanced=Fal
         resp = _req(escaped_term, num_results - start,
                     lang, start, proxies, timeout)
         if resp is None:
-            yield ""
+            yield "STOP"
             return  
 
+        time.sleep(random.randint(5, max(6, sleep_interval))) ## generally we take (5,10)
         # Parse
         soup = BeautifulSoup(resp.text, "html.parser")
+            
+        #print(soup)  
         result_block = soup.find_all("div", attrs={"class": "g"})
         if len(result_block) ==0:
             start += 1
@@ -117,7 +144,6 @@ def search(term, query=None, num_results=10, lang="en", proxy=None, advanced=Fal
                         yield SearchResult(link["href"], title.text, description)
                     else:
                         yield link["href"]
-        sleep(sleep_interval)
 
         if start == 0:
             yield ""
